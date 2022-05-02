@@ -1,20 +1,23 @@
 package com.hmittag.polygonalgorithms.Waypoints;
 
+import com.hmittag.polygonalgorithms.DYN4J.Dyn4JHelper;
 import com.hmittag.polygonalgorithms.JTS.JtsHelper;
 import com.hmittag.polygonalgorithms.Model.Polygon.Polygon;
 import com.hmittag.polygonalgorithms.Model.Vector.Vector;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
+import org.dyn4j.geometry.Convex;
+import org.dyn4j.geometry.decompose.Bayazit;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
 public class ConcaveWaypointsCalculator {
+
     //region fields
     private ConvexWaypointsCalculator convexWaypointsCalculator;
 
@@ -23,252 +26,267 @@ public class ConcaveWaypointsCalculator {
     private int test = 0;
     //endregion
 
+    //region consturctor
+    public ConcaveWaypointsCalculator() {
+        this.convexWaypointsCalculator = new ConvexWaypointsCalculator();
+    }
+    //endregion
+
     //region compute
-    public List<Vector> computeMission(Polygon polygon, double distanceBetweenLines, double distanceToBoundaries, double linesOffset, double angle, ConvexWaypointsCalculator.StartingPosition startingPosition) {
+    public List<Vector> computeWaypoints(Polygon polygon, double distanceBetweenLines, double distanceToBoundaries, double linesOffset, double angle, ConvexWaypointsCalculator.StartingPosition startingPosition)  {
         List<Vector> finalMissionPointsList = new ArrayList<>();
         if (polygon == null) {
+
             return finalMissionPointsList;
         }
 
-        //Create jts polygon for buffering
+        strokePolygonLine(polygon, false);
         Geometry bufferedPolygon = polygon.bufferOp(-10);
-        Polygon bufferedPolygon1 = JtsHelper.JTSPolygon2Polygon(bufferedPolygon);
-        strokePolygonLine(bufferedPolygon1, true);
-        Geometry intersectionPolygon = bufferedPolygon1.bufferOp(1);
+        List<Polygon> polygonParts = convexPartition(JtsHelper.JTSPolygon2Polygon(bufferedPolygon));
 
-        //create root mission coordinates
-        List<Vector> rootPolygonVertices = bufferedPolygon1.getVertices();
-        if (convexWaypointsCalculator == null) {
-            convexWaypointsCalculator = new ConvexWaypointsCalculator();
+        polygonParts.add(0, polygonParts.remove(findFirstPolygon(polygonParts, startingPosition)));
+        //groupSubMissions(polygonParts, distanceBetweenLines, distanceToBoundaries, linesOffset, angle, startingPosition);
+
+
+
+        for (int i = 0; i < polygonParts.size(); i++)   {
+            Polygon p = polygonParts.get(i);
+            p = JtsHelper.JTSPolygon2Polygon(p.bufferOp(-2));
+            for (int j = 0; j < polygonParts.size(); j++)   {
+
+            }
+            List<Vector> rootPolygonVertices = p.getVertices();
+
+            List<Vector> rootMissionCoordinates = convexWaypointsCalculator.calculateWaypoints(rootPolygonVertices, distanceBetweenLines, distanceToBoundaries, 0, 20, startingPosition);
+            fillPoint(rootMissionCoordinates.get(0));
+            strokeLine(rootMissionCoordinates, true);
         }
-        List<Vector> rootMissionCoordinates = convexWaypointsCalculator.calculateWaypoints(rootPolygonVertices, distanceBetweenLines, distanceToBoundaries, linesOffset, angle, startingPosition);
-        fillPoint(rootMissionCoordinates.get(0));
-        strokeLine(rootMissionCoordinates, false);
 
-        //loop over mission linestrings intersecting with root polygon
+
+        return null;
+    }
+
+    private List<List<Vector>> groupSubMissions(List<Polygon> polygonList, double distanceBetweenLines, double distanceToBoundaries, double linesOffset, double angle, ConvexWaypointsCalculator.StartingPosition startingPosition)   {
+        List<List<Vector>> missions = new ArrayList<>();
+        //List<Vector> firstMissionPoints = convexWaypointsCalculator.calculateWaypoints(rootPolygonVertices, distanceBetweenLines, distanceToBoundaries, linesOffset, angle, startingPosition);
+        for (int i = 0; i < polygonList.size(); i++)    {
+            Geometry rootPolygon = JtsHelper.polygon2JTSPolygon(polygonList.get(i));
+            for (int j = 0; j < polygonList.size(); j++)    {
+                Geometry runnerPolygon = JtsHelper.polygon2JTSPolygon(polygonList.get(j));
+
+                //check difference
+                if (runnerPolygon.intersects(rootPolygon))  {
+                    List<Vector> rootMission = convexWaypointsCalculator.calculateWaypoints(polygonList.get(i).getVertices(), distanceBetweenLines, distanceToBoundaries, linesOffset, angle, startingPosition);
+                    List<Vector> runnerMission = convexWaypointsCalculator.calculateWaypoints(polygonList.get(j).getVertices(), distanceBetweenLines, distanceToBoundaries, linesOffset, angle, startingPosition);
+                    joinTwoMissions(rootMission, runnerMission);
+
+                }
+            }
+            List<Vector> rootPolygonVertices = polygonList.get(i).getVertices();
+            List<Vector> missionPoints = convexWaypointsCalculator.calculateWaypoints(rootPolygonVertices, distanceBetweenLines, distanceToBoundaries, linesOffset, angle, startingPosition);
+        }
+
+        return missions;
+    }
+
+    private void joinTwoMissions(List<Vector> m1, List<Vector> m2)   {
         GeometryFactory gf = new GeometryFactory();
-        List<List<Vector>> subMissionCoordinatesList = new ArrayList<>();
-        boolean isIntersecting = true;
-        int cutIndex = 0;
-        while (isIntersecting) {
-            System.out.println("\n\n------------- IS INTERSECTING -------------");
-            //find intersections
-            HashMap<Integer, LineStringDifference> intersections = new HashMap<>();
-            int biggesDifference = 0;
-            int ticker = 0;
-            int ticker1 = 0;
-            for (int i = 0; i < rootMissionCoordinates.size() - 1; i++) {
-                Vector v = rootMissionCoordinates.get(i);
-                Vector v1 = rootMissionCoordinates.get(i + 1);
+        //find common vector
 
+        List<Vector> rootTopPoints = new ArrayList<>();
+        List<Vector> rootBotPoints = new ArrayList<>();
+        Vector v0RootStart = m1.get(1);
+        Vector v0RootEnd = m1.get(2);
+        rootTopPoints.add(v0RootStart);
+
+        Vector v1RootStart = m1.get(3);
+        Vector v1RootEnd = m1.get(4);
+        rootBotPoints.add(v1RootStart);
+
+
+        List<Vector> runnerTopPoints = new ArrayList<>();
+        List<Vector> runnerBotPoints = new ArrayList<>();
+        Vector v0RunnerStart = m2.get(1);
+        Vector v0RunnerEnd = m2.get(2);
+        runnerTopPoints.add(v0RunnerStart);
+
+        Vector v1RunnerStart = m2.get(3);
+        Vector v1RunnerEnd = m2.get(4);
+        runnerBotPoints.add(v1RunnerStart);
+
+
+        //m1 line string
+        int ticker = 1;
+        try {
+            for (int i = 4; i < m1.size() - 1; i += 2) {
                 switch (ticker) {
                     case 0:
-                        switch (ticker1) {
-                            case 0:
-                                if (v != null && v1 != null) {
-                                    //create linestring
-                                    LineString lineString = gf.createLineString(new Coordinate[]{new Coordinate(v.getX(), v.getY())
-                                            , new Coordinate(v1.getX(), v1.getY())});
-
-                                    Geometry difference = lineString.difference(intersectionPolygon);
-                                    LineStringDifference lineStringDifference = new LineStringDifference(difference.getCoordinates(), false);
-                                    if (lineStringDifference.getCoordinates().size() > 2) {
-                                        Coordinate[] coords = new Coordinate[2];
-                                        coords[0] = lineStringDifference.getCoordinates().get(0);
-                                        coords[1] = lineStringDifference.getCoordinates().get(1);
-                                        lineStringDifference.setCoordinates(coords);
-                                    }
-                                    if (difference.getCoordinates().length > 0) {
-                                        intersections.put(i, lineStringDifference);
-                                        if (difference.getCoordinates().length > biggesDifference) {
-                                            biggesDifference = difference.getCoordinates().length;
-                                        }
-                                    }
-                                }
-                                ticker1 = 1;
-                                break;
-
-                            case 1:
-                                if (v != null && v1 != null) {
-                                    //create linestring
-                                    LineString lineString = gf.createLineString(new Coordinate[]{new Coordinate(v.getX(), v.getY())
-                                            , new Coordinate(v1.getX(), v1.getY())});
-
-                                    Geometry difference = lineString.difference(intersectionPolygon);
-                                    LineStringDifference lineStringDifference = new LineStringDifference(difference.getCoordinates(), false);
-                                    if (lineStringDifference.getCoordinates().size() > 2) {
-                                        Coordinate[] coords = new Coordinate[2];
-                                        coords[0] = lineStringDifference.getCoordinates().get(lineStringDifference.getCoordinates().size() - 2);
-                                        coords[1] = lineStringDifference.getCoordinates().get(lineStringDifference.getCoordinates().size() - 1);
-                                        lineStringDifference.setCoordinates(coords);
-                                    }
-                                    if (difference.getCoordinates().length > 0) {
-                                        intersections.put(i, lineStringDifference);
-                                        if (difference.getCoordinates().length > biggesDifference) {
-                                            biggesDifference = difference.getCoordinates().length;
-                                        }
-                                    }
-                                }
-                                ticker1 = 0;
-                                break;
-                        }
+                        v0RootEnd = m1.get(i);
+                        rootTopPoints.add(m1.get(i-1));
+                        rootTopPoints.add(m1.get(i));
                         ticker = 1;
                         break;
 
                     case 1:
-                        if (v != null && v1 != null) {
-                            //create linestring
-                            LineString lineString = gf.createLineString(new Coordinate[]{new Coordinate(v.getX(), v.getY())
-                                    , new Coordinate(v1.getX(), v1.getY())});
-
-                            Geometry difference = lineString.difference(intersectionPolygon);
-                            LineStringDifference lineStringDifference = new LineStringDifference(difference.getCoordinates(), true);
-                            if (difference.getCoordinates().length > 0) {
-                                intersections.put(i, lineStringDifference);
-                                if (difference.getCoordinates().length > biggesDifference) {
-                                    biggesDifference = difference.getCoordinates().length;
-                                }
-                            }
-                        }
+                        v1RootEnd = m1.get(i);
+                        rootBotPoints.add(m1.get(i-1));
+                        rootBotPoints.add(m1.get(i));
                         ticker = 0;
                         break;
                 }
-
             }
-
-            //correct set of intersections
-            System.out.println("\nintersections: ");
-            intersections.entrySet().forEach(entry -> {
-                System.out.println(entry.getKey() + " " + entry.getValue());
-            });
-            cutIndex = correctIntersection(subMissionCoordinatesList, rootMissionCoordinates, intersections, cutIndex);
-
-            //TODO: delete test
-            for (int i = 0; i < rootMissionCoordinates.size(); i++) {
-                Vector v = rootMissionCoordinates.get(i);
-                System.out.println("Root coord " + i + ": " + v);
-            }
-
-            isIntersecting = !intersections.isEmpty();
-
-            /*if (test < 2) {
-                break;
-            }*/
+        }
+        catch (IndexOutOfBoundsException e) {
         }
 
 
-        return joinSubMissionList(subMissionCoordinatesList);
-    }
+        LineString lineString0Root = gf.createLineString(new Coordinate[]{new Coordinate(v0RootStart.getX(), v0RootStart.getY())
+                , new Coordinate(v0RootEnd.getX(), v0RootEnd.getY())});
+        LineString lineString1Root = gf.createLineString(new Coordinate[]{new Coordinate(v1RootStart.getX(), v1RootStart.getY())
+                , new Coordinate(v1RootEnd.getX(), v1RootEnd.getY())});
 
-    private int correctIntersection(List<List<Vector>> subMissionCoordinatesList, List<Vector> rootMissionCoordinates, HashMap<Integer, LineStringDifference> intersections, int cutIndex) {
-        System.out.println("\n--- correcting intersection ---");
-        List<Vector> mission = new ArrayList<>();
-        boolean jumpOne = false;
-        int ticker = 0;
-        int newCutIndex = 0;
-        // mission got cut in the middle
-        if (!(cutIndex+1 < rootMissionCoordinates.size()))   {
-            return 0;
-        }
-        else if (cutIndex != 0) {
-            cutIndex++;
-        }
-        System.out.println("cut index: " + cutIndex);
-
-        HashMap<Integer, Vector> swap = new HashMap<>();
-        for (int j = cutIndex; j < rootMissionCoordinates.size(); j++)  {
-            System.out.println("index " + j);
-            if (rootMissionCoordinates.get(j) != null) {
-                if (!intersections.containsKey(j)) {
-                    if (!jumpOne) {
-                        mission.add(rootMissionCoordinates.get(j));
-                        rootMissionCoordinates.set(j, null);
-                        System.out.println("not intersective");
-                    }
-                    //jumpOne = false;
-                } else {
-                    System.out.println("intersective");
-                    LineStringDifference lineStringDifference = intersections.get(j);
-                    List<Coordinate> coords = lineStringDifference.getCoordinates();
-
-                    if (lineStringDifference.isSupportingLine()) {
-                        System.out.println("lineString is supportive");
-                        mission.add(rootMissionCoordinates.get(j));
-                        rootMissionCoordinates.set(j, null);
-                        newCutIndex = j;
+        //m2 linestring
+        ticker = 1;
+        try {
+            for (int i = 4; i < m2.size() - 1; i += 2) {
+                switch (ticker) {
+                    case 0:
+                        v0RunnerEnd = m2.get(i);
+                        runnerTopPoints.add(m2.get(i-1));
+                        runnerTopPoints.add(m2.get(i));
+                        ticker = 1;
                         break;
-                    }
 
-                    switch (ticker) {
-                        case 0:
-                            mission.add(rootMissionCoordinates.get(j));
-                            Vector v = offsetCoordinate(JtsHelper.JTSCoordinate2Vector(coords.get(0)), rootMissionCoordinates.get(j));
-                            Vector v1 = offsetCoordinate(JtsHelper.JTSCoordinate2Vector(coords.get(1)), rootMissionCoordinates.get(j+1));
-                            mission.add(v);
-                            //rootMissionCoordinates.set(j, v1);
-                            swap.put(j, v1);
-                            /*mission.add(JtsHelper.JTSCoordinate2Vector(coords.get(0)));
-                            rootMissionCoordinates.set(j, JtsHelper.JTSCoordinate2Vector(coords.get(1)));*/
-                            jumpOne = true;
-                            ticker = 1;
-                            break;
-
-                        case 1:
-                            Vector v2 = offsetCoordinate(JtsHelper.JTSCoordinate2Vector(coords.get(coords.size() - 1)), rootMissionCoordinates.get(j+1));
-                            Vector v3 = offsetCoordinate(JtsHelper.JTSCoordinate2Vector(coords.get(0)), rootMissionCoordinates.get(j));
-                            mission.add(v2);
-                            mission.add(rootMissionCoordinates.get(j+1));
-                            //rootMissionCoordinates.set(j+1, v3);
-                            swap.put(j+1, v3);
-                            /*mission.add(JtsHelper.JTSCoordinate2Vector(coords.get(coords.size() - 1)));
-                            rootMissionCoordinates.set(j, JtsHelper.JTSCoordinate2Vector(coords.get(0)));*/
-
-                            jumpOne = false;
-                            ticker = 0;
-                            break;
-                    }
-
-                    /*if (lineStringDifference.isSupportingLine()) {
-                        System.out.println("lineString is supportive");
-
-                        newCutIndex = j;
+                    case 1:
+                        v1RunnerEnd = m2.get(i);
+                        runnerBotPoints.add(m2.get(i-1));
+                        runnerBotPoints.add(m2.get(i));
+                        ticker = 0;
                         break;
-                    }*/
                 }
             }
         }
-
-        //swap updated mission points in root list
-        swap.entrySet().forEach(entry -> {
-            rootMissionCoordinates.set(entry.getKey(), entry.getValue());
-            System.out.println("swapping " + entry.getKey() + ": " + entry.getValue());
-        });
-
-        subMissionCoordinatesList.add(mission);
-
-        if (test < 9) {
-            strokeLine(mission, true);
-            test++;
-        }
-        return newCutIndex;
-    }
-
-    private List<Vector> joinSubMissionList(List<List<Vector>> subMissionList)  {
-        //TODO:
-        for (int i = 1; i < subMissionList.size(); i++) {
-
+        catch (IndexOutOfBoundsException e) {
         }
 
-        return new ArrayList<>();
+        LineString lineString0Runner = gf.createLineString(new Coordinate[]{new Coordinate(v0RunnerStart.getX(), v0RunnerStart.getY())
+                , new Coordinate(v0RunnerEnd.getX(), v0RunnerEnd.getY())});
+        LineString lineString1Runner = gf.createLineString(new Coordinate[]{new Coordinate(v1RunnerStart.getX(), v1RunnerStart.getY())
+                , new Coordinate(v1RunnerEnd.getX(), v1RunnerEnd.getY())});
+
+
+        //check intersection
+        if (lineString0Root.intersects(lineString0Runner))  {
+            Vector rootV = rootTopPoints.get(2);
+            for (int i = 0; i < runnerTopPoints.size(); i++)    {
+            }
+        }
+        else if (lineString0Root.intersects(lineString1Runner)) {
+
+        }
+        else if (lineString1Root.intersects(lineString0Runner)) {
+
+        }
+        else if (lineString1Root.intersects(lineString1Runner)) {
+
+        }
+        else {
+            // lines are parallel
+
+        }
+
     }
 
-    private Vector offsetCoordinate(Vector v1, Vector v2)    {
-        Vector v = new Vector(v2.getX() - v1.getX(), v2.getY() - v1.getY());
-        v.normalize();
-        v.mult(4);
-        v = new Vector(v.getX() + v1.getX(), v.getY() + v1.getY());
-        return v;
+    private List<Polygon> convexPartition(final Polygon polygon) {
+        List<Polygon> parts = new ArrayList<>();
+
+        if (polygon != null)    {
+            Bayazit bayazit = new Bayazit();
+            List<Vector> correctedPolygon = polygon.getVertices();
+            correctedPolygon.remove(correctedPolygon.size()-1);
+            List<Convex> convexDyn4JPolygons = bayazit.decompose(Dyn4JHelper.VectorListToVector2List(correctedPolygon));
+            for (Convex c : convexDyn4JPolygons) {
+                org.dyn4j.geometry.Polygon dyn4jPolygon = (org.dyn4j.geometry.Polygon) c;
+
+                Polygon p = Dyn4JHelper.dyn4JPolygonToPolygon(dyn4jPolygon);
+                strokePolygonLine(p, true);
+                parts.add(p);
+
+                List<Vector> points = p.getVertices();
+                points.add(new Vector(p.getVertices().get(0).getX(), p.getVertices().get(0).getY()));
+            }
+        }
+
+        return parts;
     }
+
+    private int findFirstPolygon(List<Polygon> polygonList, ConvexWaypointsCalculator.StartingPosition startingPosition) {
+        Polygon firstPolygon = null;
+        switch (startingPosition)   {
+            case BOTTOM_RIGHT:
+                Vector bottomRight = polygonList.get(0).getVertices().get(0);
+                Polygon bottomRightPolygon = polygonList.get(0);
+                for (Polygon p : polygonList)    {
+                    for (int i = 0; i < p.getVertices().size(); i++)   {
+                        Vector v = p.getVertices().get(i);
+                        if (v.getX() >= bottomRight.getX() && v.getY() >= bottomRight.getY()) {
+                            bottomRight = v;
+                            bottomRightPolygon = p;
+                        }
+                    }
+                }
+
+                return polygonList.indexOf(bottomRightPolygon);
+
+            case BOTTOM_LEFT:
+                Vector bottomLeft = polygonList.get(0).getVertices().get(0);
+                Polygon bottomLeftPolygon = polygonList.get(0);
+                for (Polygon p : polygonList)    {
+                    for (int i = 0; i < p.getVertices().size(); i++)   {
+                        Vector v = p.getVertices().get(i);
+                        if (v.getX() <= bottomLeft.getX() && v.getY() >= bottomLeft.getY()) {
+                            bottomLeft = v;
+                            bottomLeftPolygon = p;
+                        }
+                    }
+                }
+
+                return polygonList.indexOf(bottomLeftPolygon);
+
+            case TOP_RIGHT:
+                Vector topRight = polygonList.get(0).getVertices().get(0);
+                Polygon topRightPolygon = polygonList.get(0);
+                for (Polygon p : polygonList)    {
+                    for (int i = 0; i < p.getVertices().size(); i++)   {
+                        Vector v = p.getVertices().get(i);
+                        if (v.getX() >= topRight.getX() && v.getY() <= topRight.getY()) {
+                            topRight = v;
+                            topRightPolygon = p;
+                        }
+                    }
+                }
+
+                return polygonList.indexOf(topRightPolygon);
+
+            case TOP_LEFT:
+                Vector topLeft = polygonList.get(0).getVertices().get(0);
+                Polygon topLeftPolygon = polygonList.get(0);
+                for (Polygon p : polygonList)    {
+                    for (int i = 0; i < p.getVertices().size(); i++)   {
+                        Vector v = p.getVertices().get(i);
+                        if (v.getX() <= topLeft.getX() && v.getY() <= topLeft.getY()) {
+                            topLeft = v;
+                            topLeftPolygon = p;
+                        }
+                    }
+                }
+
+                firstPolygon = topLeftPolygon;
+                return polygonList.indexOf(topLeftPolygon);
+        }
+        return -1;
+    }
+
     //endregion
 
     //region test
