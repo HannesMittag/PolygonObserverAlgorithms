@@ -5,6 +5,7 @@ import com.hmittag.polygonalgorithms.Model.Vector.Vector;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.LineSegment;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -73,6 +74,21 @@ public class JtsHelper {
             return coordinates.toArray(new Coordinate[0]);
         }
         return null;
+    }
+
+    public static LineSegment jtsLineSegmentFromTwoPoints(Vector p, Vector p1)    {
+        return new LineSegment(new Coordinate(p.getX(), p.getY()), new Coordinate(p1.getX(), p1.getY()));
+    }
+
+    public static List<LineSegment> polygon2JtsLineSegments(Polygon p)  {
+        List<LineSegment> lineSegments = new ArrayList<>();
+        for (int i = 0; i < p.getVertices().size()-1 ; i++)    {
+            lineSegments.add(jtsLineSegmentFromTwoPoints(p.getVertices().get(i), p.getVertices().get(i+1)));
+        }
+
+        lineSegments.add(jtsLineSegmentFromTwoPoints(p.getVertices().get(p.getVertices().size()-1), p.getVertices().get(0)));
+
+        return lineSegments;
     }
 
 }

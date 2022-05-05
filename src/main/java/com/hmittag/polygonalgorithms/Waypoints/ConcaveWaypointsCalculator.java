@@ -8,6 +8,8 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
 import org.dyn4j.geometry.Convex;
 import org.dyn4j.geometry.decompose.Bayazit;
+import org.dyn4j.geometry.decompose.EarClipping;
+import org.dyn4j.geometry.decompose.SweepLine;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
@@ -57,7 +59,7 @@ public class ConcaveWaypointsCalculator {
             }
             List<Vector> rootPolygonVertices = p.getVertices();
 
-            List<Vector> rootMissionCoordinates = convexWaypointsCalculator.calculateWaypoints(rootPolygonVertices, distanceBetweenLines, distanceToBoundaries, 0, 20, startingPosition);
+            List<Vector> rootMissionCoordinates = convexWaypointsCalculator.calculateWaypointsForLongestSide(rootPolygonVertices, distanceBetweenLines, distanceToBoundaries, 0,/* 20,*/ startingPosition);
             fillPoint(rootMissionCoordinates.get(0));
             strokeLine(rootMissionCoordinates, true);
         }
@@ -201,10 +203,16 @@ public class ConcaveWaypointsCalculator {
         List<Polygon> parts = new ArrayList<>();
 
         if (polygon != null)    {
+
+            EarClipping earClipping = new EarClipping();
+            SweepLine sweepLine = new SweepLine();
+
             Bayazit bayazit = new Bayazit();
             List<Vector> correctedPolygon = polygon.getVertices();
             correctedPolygon.remove(correctedPolygon.size()-1);
+            //List<Convex> convexDyn4JPolygons = bayazit.decompose(Dyn4JHelper.VectorListToVector2List(correctedPolygon));
             List<Convex> convexDyn4JPolygons = bayazit.decompose(Dyn4JHelper.VectorListToVector2List(correctedPolygon));
+
             for (Convex c : convexDyn4JPolygons) {
                 org.dyn4j.geometry.Polygon dyn4jPolygon = (org.dyn4j.geometry.Polygon) c;
 

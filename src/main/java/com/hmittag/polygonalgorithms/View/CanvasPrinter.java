@@ -1,5 +1,6 @@
 package com.hmittag.polygonalgorithms.View;
 
+import com.hmittag.polygonalgorithms.CoveragePathPlanning.CoveragePathPlanner;
 import com.hmittag.polygonalgorithms.Model.Polygon.Polygon;
 import com.hmittag.polygonalgorithms.Model.Vector.Vector;
 import com.hmittag.polygonalgorithms.Waypoints.ConcaveWaypointsCalculator;
@@ -18,6 +19,10 @@ public class CanvasPrinter {
     private GraphicsContext graphicsContext;
 
     private Polygon polygon;
+    private CoveragePathPlanner coveragePathPlanner;
+
+
+
     private ConcaveWaypointsCalculator2 concaveWaypointsCalculator2;
     private ConcaveWaypointsCalculator concaveWaypointsCalculator;
     private ConvexWaypointsCalculator convexWaypointsCalculator;
@@ -28,8 +33,9 @@ public class CanvasPrinter {
     public CanvasPrinter(Canvas canvas) {
         this.canvas = canvas;
         this.graphicsContext = canvas.getGraphicsContext2D();
-        this.polygon = new Polygon(Polygon.SAMPLE_POLYGON_0);
+        this.polygon = new Polygon(Polygon.SAMPLE_POLYGON_2);
         //this.polygon = new Polygon();
+        this.coveragePathPlanner = new CoveragePathPlanner();
         this.concaveWaypointsCalculator = new ConcaveWaypointsCalculator();
         this.concaveWaypointsCalculator2 = new ConcaveWaypointsCalculator2();
         this.convexWaypointsCalculator = new ConvexWaypointsCalculator();
@@ -42,7 +48,6 @@ public class CanvasPrinter {
         graphicsContext.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
 
         test();
-        //calcTest();
 
         /*canvas.setOnMouseClicked(v -> {
             polygon.addPoint(new Vector(v.getX(), v.getY()));
@@ -61,12 +66,16 @@ public class CanvasPrinter {
     }
 
     private void test() {
+        coveragePathPlanner.setGraphicsContext(graphicsContext);
+
+        this.coveragePathPlanner.planPath(this.polygon, null, 10);
+
         /*concaveWaypointsCalculator.prepareForTesting(graphicsContext);
-        concaveWaypointsCalculator.computeWaypoints(this.polygon, 20, 0, 10, 70, ConvexWaypointsCalculator.StartingPosition.BOTTOM_LEFT);*/
+        concaveWaypointsCalculator.computeWaypoints(this.polygon, 20, 0, 10, 70, ConvexWaypointsCalculator.StartingPosition.BOTTOM_LEFT);
 
 
         this.concaveWaypointsCalculator2.prepareForTesting(graphicsContext);
-        this.concaveWaypointsCalculator2.computeMission(this.polygon, 20, 0, 0, 21, ConvexWaypointsCalculator.StartingPosition.TOP_RIGHT);
+        this.concaveWaypointsCalculator2.computeMission(this.polygon, 20, 0, 0, 21, ConvexWaypointsCalculator.StartingPosition.TOP_RIGHT);*/
     }
 
     /*private void calcTest() {

@@ -41,6 +41,18 @@ public class Polygon {
             , new Vector(479.0, 563.0), new Vector(361.0, 567.0), new Vector(280.0, 631.0)
             , new Vector(164.0, 619.0), new Vector(95.0, 583.0), new Vector(78.0, 283.0)
             , new Vector(101.0, 162.0), new Vector(140.0, 102.0)};
+
+    public static final Vector[] SAMPLE_POLYGON_4 = new Vector[] { new Vector(276.0, 148.0), new Vector(501.0
+            , 121.0), new Vector(706.0, 303.0), new Vector(367.0, 421.0), new Vector(211.0
+            , 333.0) };
+
+    public static final Vector[] SAMPLE_POLYGON_5 = new Vector[] { new Vector(706.0, 307.0), new Vector(511.0
+            , 453.0), new Vector(265.0, 365.0), new Vector(166.0, 169.0), new Vector(795.0
+            , 118.0) };
+
+    public static final Vector[] SAMPLE_POLYGON_6 = new Vector[] { new Vector(257.0, 251.0), new Vector(449.0
+            , 109.0), new Vector(555.0, 107.0), new Vector(535.0, 432.0), new Vector(454.0
+            , 431.0) };
     //endregion
 
     //region fields
