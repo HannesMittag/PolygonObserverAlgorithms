@@ -2,12 +2,8 @@ package com.hmittag.polygonalgorithms.Model.Polygon;
 
 import com.hmittag.polygonalgorithms.JTS.JtsHelper;
 import com.hmittag.polygonalgorithms.Model.Vector.Vector;
-import org.locationtech.jts.algorithm.ConvexHull;
 import org.locationtech.jts.algorithm.Orientation;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.Geometry;
-import org.locationtech.jts.geom.GeometryCollection;
-import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.*;
 import org.locationtech.jts.operation.buffer.BufferOp;
 import org.locationtech.jts.operation.buffer.BufferParameters;
 import org.locationtech.jts.triangulate.DelaunayTriangulationBuilder;
@@ -57,6 +53,15 @@ public class Polygon {
 
     //region fields
     private List<Vector> vertices;
+
+    //cpp
+    private List<List<Vector>> coverPathsList = new ArrayList<>();
+    private List<Vector> cpp0 = new ArrayList<>();
+    private List<Vector> cpp1 = new ArrayList<>();
+    private List<Vector> cpp2 = new ArrayList<>();
+    private List<Vector> cpp3 = new ArrayList<>();
+    private int currentCoverPathIndex = 0;
+
     //endregion
 
     //region constructor
@@ -102,28 +107,74 @@ public class Polygon {
     public Geometry bufferOp(double offset)  {
         Geometry polygon = JtsHelper.polygon2JTSPolygon(this);
         Geometry geom = BufferOp.bufferOp(polygon, offset, new BufferParameters(0, BufferParameters.CAP_FLAT, BufferParameters.JOIN_MITRE, 10));
-        System.out.println(geom);
         return geom;
     }
 
     public boolean neighborsPolygon(Polygon p)  {
         if (p != null)  {
-            List<Vector> vertices = p.getVertices();
-            for (int i = 0; i < this.vertices.size(); i++)  {
-                Vector v = this.vertices.get(i);
-                for (int j = 0; j < vertices.size(); j++)   {
-                    Vector v1 = vertices.get(j);
-                    if (v.equals(v1))   {
+            List<LineSegment> lineSegments0 = JtsHelper.polygon2JtsLineSegments(p);
+            List<LineSegment> lineSegments1 = JtsHelper.polygon2JtsLineSegments(this);
+            for (LineSegment ls0 : lineSegments0)   {
+                for (LineSegment ls1: lineSegments1)    {
+                    if ((ls0.p0.equals(ls1.p0) || ls0.p0.equals(ls1.p1)) && (ls0.p1.equals(ls1.p0) || ls0.p1.equals(ls1.p1)))   {
                         return true;
                     }
+                    /*if (ls0.equals(ls1))    {
+                        return true;
+                    }*/
                 }
             }
+            return false;
         }
-
         return false;
     }
 
     //region getter setter
+    public void createCoverageList()    {
+        this.coverPathsList = new ArrayList<>();
+        this.coverPathsList.add(cpp0);
+        this.coverPathsList.add(cpp1);
+        this.coverPathsList.add(cpp2);
+        this.coverPathsList.add(cpp3);
+    }
+    public List<List<Vector>> getCoverPathsList() {
+        return coverPathsList;
+    }
+
+    public List<Vector> getCpp0() {
+        return cpp0;
+    }
+    public void setCpp0(List<Vector> cpp0) {
+        this.cpp0 = cpp0;
+    }
+
+    public List<Vector> getCpp1() {
+        return cpp1;
+    }
+    public void setCpp1(List<Vector> cpp1) {
+        this.cpp1 = cpp1;
+    }
+
+    public List<Vector> getCpp2() {
+        return cpp2;
+    }
+    public void setCpp2(List<Vector> cpp2) {
+        this.cpp2 = cpp2;
+    }
+
+    public List<Vector> getCpp3() {
+        return cpp3;
+    }
+    public void setCpp3(List<Vector> cpp3) {
+        this.cpp3 = cpp3;
+    }
+
+    public int getCurrentCoverPathIndex() {
+        return currentCoverPathIndex;
+    }
+    public void setCurrentCoverPathIndex(int currentcoverPathIndex) {
+        this.currentCoverPathIndex = currentcoverPathIndex;
+    }
 
     public List<Vector> getVertices() {
         return vertices;
@@ -164,6 +215,15 @@ public class Polygon {
             cs[i] = new Coordinate(p.getVertices().get(i).getX(), p.getVertices().get(i).getY());
         }
         return !Orientation.isCCW(cs);
+    }
+
+    public static Polygon fusePolygon(Polygon p0, Polygon p1)   {
+        org.locationtech.jts.geom.Polygon jtsP0 = JtsHelper.polygon2JTSPolygon(p0);
+        org.locationtech.jts.geom.Polygon jtsP1 = JtsHelper.polygon2JTSPolygon(p1);
+        org.locationtech.jts.geom.Polygon finalPolygon = (org.locationtech.jts.geom.Polygon) jtsP0.union(jtsP1);
+        Polygon p = JtsHelper.JTSPolygon2Polygon(finalPolygon);
+        p.getVertices().remove(p.getVertices().size()-1);
+        return p;
     }
     //endregion
 }

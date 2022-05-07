@@ -1,7 +1,12 @@
 package com.hmittag.polygonalgorithms.Decompose;
 
+import com.hmittag.polygonalgorithms.DYN4J.Dyn4JHelper;
+import com.hmittag.polygonalgorithms.Model.Polygon.Polygon;
 import com.hmittag.polygonalgorithms.Model.Vector.Vector;
+import org.dyn4j.geometry.Convex;
+import org.dyn4j.geometry.decompose.Bayazit;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -10,19 +15,19 @@ import java.util.List;
  *
  */
 public class Decomposer {
-
-    //region fields
-
-    //endregion
-
-    //region constructor
-    public Decomposer() {
-
-    }
-    //endregion
-
     //region decompose
+    public List<Polygon> decompose(Polygon polygon) {
+        List<Polygon> polygonParts = new ArrayList<>();
+        Bayazit bayazit = new Bayazit();
 
+        List<Convex> convexes = bayazit.decompose(Dyn4JHelper.VectorListToVector2List(polygon.getVertices()));
+        for (Convex c : convexes) {
+            org.dyn4j.geometry.Polygon dyn4jPolygon = (org.dyn4j.geometry.Polygon) c;
+            Polygon p = Dyn4JHelper.dyn4JPolygonToPolygon(dyn4jPolygon);
+            polygonParts.add(p);
+        }
+        return polygonParts;
+    }
 
     //endregion
 }

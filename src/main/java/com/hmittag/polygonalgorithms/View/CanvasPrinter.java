@@ -33,7 +33,7 @@ public class CanvasPrinter {
     public CanvasPrinter(Canvas canvas) {
         this.canvas = canvas;
         this.graphicsContext = canvas.getGraphicsContext2D();
-        this.polygon = new Polygon(Polygon.SAMPLE_POLYGON_2);
+        this.polygon = new Polygon(Polygon.SAMPLE_POLYGON_6);
         //this.polygon = new Polygon();
         this.coveragePathPlanner = new CoveragePathPlanner();
         this.concaveWaypointsCalculator = new ConcaveWaypointsCalculator();
@@ -68,7 +68,7 @@ public class CanvasPrinter {
     private void test() {
         coveragePathPlanner.setGraphicsContext(graphicsContext);
 
-        this.coveragePathPlanner.planPath(this.polygon, null, 10);
+        this.coveragePathPlanner.planPath(this.polygon, null, 10, -10);
 
         /*concaveWaypointsCalculator.prepareForTesting(graphicsContext);
         concaveWaypointsCalculator.computeWaypoints(this.polygon, 20, 0, 10, 70, ConvexWaypointsCalculator.StartingPosition.BOTTOM_LEFT);

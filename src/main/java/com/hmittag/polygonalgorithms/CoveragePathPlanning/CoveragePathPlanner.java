@@ -1,5 +1,6 @@
 package com.hmittag.polygonalgorithms.CoveragePathPlanning;
 
+import com.hmittag.polygonalgorithms.Decompose.Decomposer;
 import com.hmittag.polygonalgorithms.JTS.JtsHelper;
 import com.hmittag.polygonalgorithms.Model.Polygon.Polygon;
 import com.hmittag.polygonalgorithms.Model.Vector.Vector;
@@ -24,8 +25,9 @@ public class CoveragePathPlanner {
     //endregion
 
     //region fields
-
+    private PolygonLineSweeper polygonLineSweeper;
     private GeometryFactory geometryFactory;
+    private Decomposer decomposer;
 
     //test
     private GraphicsContext graphicsContext;
@@ -34,294 +36,130 @@ public class CoveragePathPlanner {
     //region constructor
     public CoveragePathPlanner()    {
         geometryFactory = new GeometryFactory();
+        polygonLineSweeper = new PolygonLineSweeper();
+        decomposer = new Decomposer();
     }
     //endregion
 
     //region path planning
-    public List<Vector> planPath(Polygon p, List<Polygon> holes, double workingWidth) {
+    public List<Vector> planPath(Polygon p, List<Polygon> holes, double workingWidth, double polygonBufferSized) {
         List<Vector> finalPath = new ArrayList<>();
 
         strokePolygonLine(p, false);
 
-        SweepLine sweepLine = findLineSweepDirection(p);
-        sweep(p, sweepLine, workingWidth);
+        Polygon bufferedPolygon = JtsHelper.JTSPolygon2Polygon(p.bufferOp(polygonBufferSized));
+        bufferedPolygon.getVertices().remove(bufferedPolygon.getVertices().size()-1);
+
+        this.polygonLineSweeper.sweep(bufferedPolygon, workingWidth);
+
+        //List<Polygon> polygonList = decomposer.decompose(bufferedPolygon);
+        //create coverage for each polygon
+        /*for (Polygon part : polygonList)   {
+            this.polygonLineSweeper.sweep(part, workingWidth);
+        }*/
+        //groupPolygonsAndCover(polygonList, workingWidth);
+
+        /*List<Vector> joinedPath = createJoinedPath(polygonList);
+        strokeLine(joinedPath, true);*/
 
         return finalPath;
     }
 
-    //endregion
+    private List<Vector> createJoinedPath(List<Polygon> polygonList)    {
+        List<List<Vector>> finalPaths = new ArrayList<>();
+        boolean computationFinished = false;
+        List<List<Vector>> currentPathPool = new ArrayList<>();
 
-    //region sweep line
-    private List<Vector> sweep(Polygon polygon, SweepLine sweepLine, double workingWidth)    {
-        List<Vector> cppPoints = new ArrayList<>();
+        double minLength = Double.MAX_VALUE;
+        int polygonIndex = polygonList.size()-1;
+        while (!computationFinished) {
+            for (int i = 0; i < polygonList.size(); i++) {
+                Polygon p = polygonList.get(i);
+                currentPathPool.add(p.getCoverPathsList().get(p.getCurrentCoverPathIndex()));
 
-        if (sweepLine != null) {
-            double[] polygonBoundingBox = computePolygonBoundingBox(polygon.getVertices());
-
-            org.locationtech.jts.geom.Polygon jtsPolygon = JtsHelper.polygon2JTSPolygon(polygon);
-            List<LineSegment> polygonEdges = JtsHelper.polygon2JtsLineSegments(polygon);
-            LineString currentLineString = stretchSweepLine(sweepLine, polygonBoundingBox, jtsPolygon.getCentroid());
-            System.out.println("\n\n");
-
-            //add root points to cpp
-            cppPoints.add(JtsHelper.JTSCoordinate2Vector(sweepLine.lineSegment.p1));
-            cppPoints.add(JtsHelper.JTSCoordinate2Vector(sweepLine.lineSegment.p0));
-
-            //init translate
-            LineString testLS = translateParallel(currentLineString, workingWidth);
-            //currentLineString = translateParallel(currentLineString, workingWidth);
-            //strokeLineString(currentLineString, true);
-
-            if (!jtsPolygon.intersects(testLS))  {
-                workingWidth *= -1;
+                computationFinished = handleCurrentCoverageIndexIncrement(polygonList);
             }
-            currentLineString = translateParallel(currentLineString, workingWidth);
-
-            // loop
-            int ticker = 1;
-            int test = 0;
-            while (jtsPolygon.intersects(currentLineString))  {
-                //strokeLineString(currentLineString, true);
-                List<Coordinate> coordinates = new ArrayList<>();
-                for (LineSegment ls : polygonEdges) {
-                    LineString lsEdge = ls.toGeometry(geometryFactory);
-                    Geometry g = currentLineString.intersection(lsEdge);
-                    System.out.println("intersection: " + g);
-
-                    Coordinate c = null;
-                    if (g.getCoordinates().length > 0)  {
-                        c = g.getCoordinate();
-                        System.out.println("confirmed: " + c);
-                    }
-
-                    if (c != null)  {
-                        coordinates.add(c);
-                        /*if (pointLiesOnLineString(JtsHelper.JTSCoordinate2Vector(c), JtsHelper.JTSCoordinate2Vector(ls.p0), JtsHelper.JTSCoordinate2Vector(ls.p1)))   {
-                            System.out.println("Point confirmed: " + c);
-                            coordinates.add(c);
-                        }*/
-                    }
-                }
-
-                System.out.println("\n");
-
-                //if more than two intersections found, mission cannot be build
-                if (coordinates.size() > 2) {
-                    return null;
-                }
-
-                //add points to cpp
-                switch (ticker) {
-                    case 0:
-                        cppPoints.add(JtsHelper.JTSCoordinate2Vector(coordinates.get(0)));
-                        cppPoints.add(JtsHelper.JTSCoordinate2Vector(coordinates.get(1)));
-                        ticker = 1;
-                        break;
-
-                    case 1:
-                        cppPoints.add(JtsHelper.JTSCoordinate2Vector(coordinates.get(1)));
-                        cppPoints.add(JtsHelper.JTSCoordinate2Vector(coordinates.get(0)));
-                        ticker = 0;
-                        break;
-                }
-
-                currentLineString = translateParallel(currentLineString, workingWidth);
-                test++;
+            double dist = computeCoveragePathsDistance(currentPathPool);
+            if (dist < minLength)   {
+                finalPaths = currentPathPool;
             }
-
-            strokeLine(cppPoints, true);
-
+            currentPathPool = new ArrayList<>();
         }
 
-        return cppPoints;
+        //join paths together
+        List<Vector> ret = new ArrayList<>();
+        for (List<Vector> path : finalPaths)    {
+            ret.addAll(path);
+        }
+
+        return ret;
     }
 
-    private SweepLine findLineSweepDirection(Polygon p)    {
-        SweepLine sweepLine = null;
-        int sweepLineBeginIndex = 0;
-        if (p != null)  {
-            List<LineSegment> edges = JtsHelper.polygon2JtsLineSegments(p);
-            List<Vector> vertices = p.getVertices();
-            Vector opposedVertex = null;
-            boolean isFirstEdge = true;
-            double optimalDist = 0;
-            for (LineSegment edge : edges)  {
-                double maxDist = 0;
-                for (Vector vert : vertices)    {
-                    double dist = edge.distancePerpendicular(JtsHelper.vector2JTSCoordinate(vert));
-                    if (dist > maxDist) {
-                        maxDist = dist;
-                        opposedVertex = vert;
-                    }
-                }
+    private boolean handleCurrentCoverageIndexIncrement(List<Polygon> polygonList)  {
+        boolean computationFinished = false;
+        int counter = polygonList.size()-1;
+        while (counter >= 0)  {
+            Polygon p = polygonList.get(counter);
+            int newIndex = p.getCurrentCoverPathIndex() + 1;
+            if (newIndex > 3)   {
+                newIndex = 0;
+                p.setCurrentCoverPathIndex(newIndex);
 
-                if (maxDist < optimalDist || isFirstEdge)   {
-                    optimalDist = maxDist;
-                    isFirstEdge = false;
-                    Vector sweepDirection = computeSweepLine(opposedVertex
-                            , computePerpendicularIntersection(JtsHelper.JTSCoordinate2Vector(edge.p0), JtsHelper.JTSCoordinate2Vector(edge.p1), opposedVertex));
-                    sweepLine = new SweepLine(edge, sweepDirection);
+                //finished ?
+                if (counter == 0)   {
+                    return true;
                 }
             }
-        }
-
-        LineSegment ls = sweepLine.lineSegment;
-        Coordinate p0 = ls.p0;
-        for (Vector v : p.getVertices())    {
-            if (v.getX() == p0.getX() && v.getY() == p0.getY()) {
-                sweepLineBeginIndex = p.getVertices().indexOf(v);
+            else {
+                p.setCurrentCoverPathIndex(newIndex);
+                break;
             }
+            counter--;
         }
-
-        System.out.println("sweep line begin index: " + sweepLineBeginIndex);
-
-        //reorg polygon
-        List<Vector> correctedVert = new ArrayList<>();
-        int counter = 0;
-        int runnerIndex = sweepLineBeginIndex;
-        while (counter <= p.getVertices().size())    {
-            correctedVert.add(p.getVertices().get(runnerIndex));
-
-            runnerIndex++;
-            if (runnerIndex == p.getVertices().size())    {
-                runnerIndex = 0;
-            }
-            counter++;
-        }
-        p.setVertices(correctedVert);
-
-        return sweepLine;
+        return false;
     }
 
-    private Vector computeSweepLine(Vector p, Vector p1)  {
-        return new Vector(p1.getX() - p.getX(), p1.getY() - p.getY());
-    }
-
-    private LineString stretchSweepLine(SweepLine sweepLine, double[] boundingBox, Point polygonCentroid)   {
-        Vector v0 = new Vector(boundingBox[0], boundingBox[2]);
-        Vector v1 = new Vector(boundingBox[1], boundingBox[2]);
-        Vector v2 = new Vector(boundingBox[2], boundingBox[3]);
-        Vector v3 = new Vector(boundingBox[0], boundingBox[3]);
-
-        System.out.println("bounding box: " + v0 + "  " + v1 + "  " + v2 + "  " + v3);
-
-        LineSegment ls0 = new LineSegment(JtsHelper.vector2JTSCoordinate(v0), JtsHelper.vector2JTSCoordinate(v1));
-        LineString lString0 = ls0.toGeometry(geometryFactory);
-        LineSegment ls1 = new LineSegment(JtsHelper.vector2JTSCoordinate(v1), JtsHelper.vector2JTSCoordinate(v2));
-        LineString lString1 = ls0.toGeometry(geometryFactory);
-        LineSegment ls2 = new LineSegment(JtsHelper.vector2JTSCoordinate(v2), JtsHelper.vector2JTSCoordinate(v3));
-        LineString lString2 = ls0.toGeometry(geometryFactory);
-        LineSegment ls3 = new LineSegment(JtsHelper.vector2JTSCoordinate(v3), JtsHelper.vector2JTSCoordinate(v0));
-        LineString lString3 = ls0.toGeometry(geometryFactory);
-
-        List<Coordinate> runnerLineStringCoords = new ArrayList<>();
-
-        Coordinate c0 = sweepLine.lineSegment.lineIntersection(ls0);
-        Coordinate c1 = sweepLine.lineSegment.lineIntersection(ls1);
-        Coordinate c2 = sweepLine.lineSegment.lineIntersection(ls2);
-        Coordinate c3 = sweepLine.lineSegment.lineIntersection(ls3);
-
-
-        HashMap<Double, Point> hashMap = new HashMap<>();
-        Point p = null;
-        Point p1 = null;
-        Point p2 = null;
-        Point p3 = null;
-
-        List<Double> doubles = new ArrayList<>();
-        if (c0 != null) {
-            System.out.println(c0);
-            p = geometryFactory.createPoint(c0);
-            double dist = p.distance(lString0);
-            System.out.println(dist);
-            doubles.add(dist);
-
-            runnerLineStringCoords.add(c0);
+    private double computeCoveragePathsDistance(List<List<Vector>> paths)    {
+        double sum = 0;
+        for (int i = 0; i < paths.size()-1; i++)  {
+            sum += computePathLength(paths.get(i));
+            sum += distanceBetweenTwoPoints(paths.get(i).get(paths.get(i).size()-1), paths.get(i+1).get(paths.get(i+1).size()-1));
+            sum += computePathLength(paths.get(i+1));
         }
-        if (c1 != null) {
-            System.out.println(c1);
-            p1 = geometryFactory.createPoint(c1);
-            double dist = p1.distance(lString1);
-            System.out.println(dist);
-            doubles.add(dist);
-
-            runnerLineStringCoords.add(c1);
-        }
-        if (c2 != null) {
-            System.out.println(c2);
-            p2 = geometryFactory.createPoint(c2);
-            double dist = p2.distance(lString2);
-            System.out.println(dist);
-            doubles.add(dist);
-
-            runnerLineStringCoords.add(c2);
-        }
-        if (c3 != null) {
-            System.out.println(c3);
-            p3 = geometryFactory.createPoint(c3);
-            double dist = p3.distance(lString3);
-            System.out.println(dist);
-            doubles.add(dist);
-
-            runnerLineStringCoords.add(c3);
-        }
-
-
-        Coordinate[] startAndEnd = new Coordinate[2];
-        Pair<Coordinate, Coordinate> coordinatePair = null;
-
-        double maxDist = 0;
-        for (int i = 0; i < runnerLineStringCoords.size()-1; i++) {
-            Coordinate c = runnerLineStringCoords.get(i);
-            for (int j = i; j < runnerLineStringCoords.size(); j++) {
-                Coordinate cRunner = runnerLineStringCoords.get(j);
-                double dist = distanceBetweenTwoPoints(new double[] {c.x, c.y} , new double[] {cRunner.x, cRunner.y});
-
-                if (dist > maxDist) {
-                    coordinatePair = new Pair<>(c, cRunner);
-                    maxDist = dist;
-                }
-            }
-        }
-
-        /*for (int i = 0; i < 2; i++) {
-            int removal = 0;
-            for (int j = 0; j < runnerLineStringCoords.size(); j++) {
-                Coordinate c = runnerLineStringCoords.get(j);
-                double distToCentroid = distanceBetweenTwoPoints(new double[] {c.x, c.y} , new double[] {polygonCentroid.getCoordinate().x, polygonCentroid.getCoordinate().y});
-                if (distToCentroid > maxDist)   {
-                    startAndEnd[i] = c;
-                    maxDist = distToCentroid;
-                }
-            }
-            runnerLineStringCoords.remove(removal);
-            maxDist = 0;
-        }*/
-
-        LineString finishedLS = geometryFactory.createLineString(runnerLineStringCoords.toArray(new Coordinate[0]));
-
-        LineString lsTest = geometryFactory.createLineString(new Coordinate[]   {coordinatePair.getKey(), coordinatePair.getValue()});
-        List<Vector> vectors = new ArrayList<>();
-        for (Coordinate c : finishedLS.getCoordinates())    {
-            vectors.add(new Vector(c.getX(), c.getY()));
-        }
-
-
-        //strokeLine(vectors, false);
-
-        return lsTest;
-
-        //return finishedLS;
-    }
-
-
-
-    //record
-    private record SweepLine (LineSegment lineSegment, Vector sweepDirection)   {
+        return sum;
     }
     //endregion
 
+    //region coverage
+    private void groupPolygonsAndCover(List<Polygon> polygons, double workingWidth)  {
+        for (int i = 0; i < polygons.size()-1; i++)   {
+            Polygon p = polygons.get(i);
+            for (int j = i+1; j < polygons.size(); j++)   {
+                Polygon pRunner = polygons.get(j);
 
+                if (p.neighborsPolygon(pRunner))    {
+                    System.out.println("neighbor found");
+                    Polygon fusedPolygon = Polygon.fusePolygon(p, pRunner);
+                    System.out.println("fused polygon: " + fusedPolygon);
+                    //check if uninterrupted path can be build
+                    if (this.polygonLineSweeper.sweep(fusedPolygon, workingWidth))  {
+                        polygons.set(i, fusedPolygon);
+                        polygons.remove(j);
+                    }
+                }
+            }
+        }
+
+        //cover the rest
+        for (Polygon p : polygons)  {
+            if (p.getCpp0() == null)    {
+                this.polygonLineSweeper.sweep(p, workingWidth);
+            }
+            //strokePolygonLine(p, true);
+            strokeLine(p.getCpp0(), true);
+        }
+    }
+    //endregion
 
     //region helper computations
     private double[] computePolygonBoundingBox(List<Vector> polygonCoordinates) {
@@ -470,14 +308,26 @@ public class CoveragePathPlanner {
                 : ls.getFactory().createLineString(retain.toArray(new Coordinate[size]));
     }
 
-    public static double distanceBetweenTwoPoints(double[] p0, double[] p1)  {
-        return Math.sqrt(Math.pow(p1[0] - p0[0], 2) + Math.pow(p1[1] - p0[1], 2));
+    public static double distanceBetweenTwoPoints(Vector p0, Vector p1)  {
+        return Math.sqrt(Math.pow(p1.getX() - p0.getX(), 2) + Math.pow(p1.getY() - p0.getY(), 2));
+    }
+
+    public static double computePathLength(List<Vector> path)    {
+        double sum = 0;
+        for (int i = 0; i < path.size()-1; i++)   {
+            Vector v0 = path.get(i);
+            Vector v1 = path.get(i+1);
+            sum += distanceBetweenTwoPoints(v0, v1);
+        }
+
+        return sum;
     }
     //endregion
 
     //region getter setter
     public void setGraphicsContext(GraphicsContext graphicsContext) {
         this.graphicsContext = graphicsContext;
+        this.polygonLineSweeper.setGraphicsContext(graphicsContext);
     }
 
     //endregion
