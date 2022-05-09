@@ -50,17 +50,23 @@ public class CoveragePathPlanner {
         Polygon bufferedPolygon = JtsHelper.JTSPolygon2Polygon(p.bufferOp(polygonBufferSized));
         bufferedPolygon.getVertices().remove(bufferedPolygon.getVertices().size()-1);
 
-        this.polygonLineSweeper.sweep(bufferedPolygon, workingWidth);
+        if (this.polygonLineSweeper.sweep(bufferedPolygon, workingWidth))   {
+            List<Polygon> pps = new ArrayList<>();
+            pps.add(bufferedPolygon);
+            List<Vector> joinedPath = createJoinedPath(pps);
+            strokeLine(joinedPath, true);
+        }
+        else {
+            List<Polygon> polygonList = decomposer.decompose(bufferedPolygon);
+            //create coverage for each polygon
+            for (Polygon part : polygonList)   {
+                this.polygonLineSweeper.sweep(part, workingWidth);
+            }
+            groupPolygonsAndCover(polygonList, workingWidth);
 
-        //List<Polygon> polygonList = decomposer.decompose(bufferedPolygon);
-        //create coverage for each polygon
-        /*for (Polygon part : polygonList)   {
-            this.polygonLineSweeper.sweep(part, workingWidth);
-        }*/
-        //groupPolygonsAndCover(polygonList, workingWidth);
-
-        /*List<Vector> joinedPath = createJoinedPath(polygonList);
-        strokeLine(joinedPath, true);*/
+            List<Vector> joinedPath = createJoinedPath(polygonList);
+            strokeLine(joinedPath, true);
+        }
 
         return finalPath;
     }
@@ -121,11 +127,14 @@ public class CoveragePathPlanner {
 
     private double computeCoveragePathsDistance(List<List<Vector>> paths)    {
         double sum = 0;
+        sum += distanceBetweenTwoPoints(new Vector(100, 100), paths.get(0).get(0));
         for (int i = 0; i < paths.size()-1; i++)  {
             sum += computePathLength(paths.get(i));
-            sum += distanceBetweenTwoPoints(paths.get(i).get(paths.get(i).size()-1), paths.get(i+1).get(paths.get(i+1).size()-1));
+            //sum += distanceBetweenTwoPoints(paths.get(i).get(paths.get(i).size()-1), paths.get(i+1).get(paths.get(i+1).size()-1));
+            sum += distanceBetweenTwoPoints(paths.get(i).get(paths.get(i).size()-1), paths.get(i+1).get(0));
             sum += computePathLength(paths.get(i+1));
         }
+        sum += distanceBetweenTwoPoints(new Vector(100, 100), paths.get(paths.size()-1).get(paths.get(paths.size()-1).size()-1));
         return sum;
     }
     //endregion
@@ -137,15 +146,51 @@ public class CoveragePathPlanner {
             for (int j = i+1; j < polygons.size(); j++)   {
                 Polygon pRunner = polygons.get(j);
 
-                if (p.neighborsPolygon(pRunner))    {
+                LineSegment ls = p.neighborsPolygon(pRunner);
+                if (ls != null)    {
                     System.out.println("neighbor found");
                     Polygon fusedPolygon = Polygon.fusePolygon(p, pRunner);
+
+                    //TODO: delete later
+                    org.locationtech.jts.geom.Polygon test = JtsHelper.polygon2JTSPolygon(fusedPolygon);
+                    System.out.println("\npolygon test :");
+                    if (!test.isValid())    {
+                        System.out.println("polygon not valid!!!");
+                    }
+
                     System.out.println("fused polygon: " + fusedPolygon);
                     //check if uninterrupted path can be build
                     if (this.polygonLineSweeper.sweep(fusedPolygon, workingWidth))  {
                         polygons.set(i, fusedPolygon);
                         polygons.remove(j);
+                        i = 0;
+                        break;
                     }
+                    else {
+                        //polygonLineSweeper.shiftEdge(pRunner, ls, 2);
+                        //pRunner.setCpp0(null);
+                    }
+                }
+            }
+        }
+
+        System.out.println("\nshifting edges!");
+        int test = 4;
+        for (int i = 0; i < polygons.size()-1; i++) {
+            Polygon p = polygons.get(i);
+            System.out.println("p: " + p);
+            for (int j = i+1; j < polygons.size(); j++) {
+                Polygon pRunner = polygons.get(j);
+                if (test >= 0) {
+                    LineSegment ls = p.neighborsPolygon(pRunner);
+
+                    //TODO: delete
+                    System.out.println("\nshifting edges!");
+
+                    if (ls != null && polygonLineSweeper.shiftEdge(p, ls, 10)) {
+                        p.setCpp0(null);
+                    }
+                    //test--;
                 }
             }
         }
@@ -156,7 +201,7 @@ public class CoveragePathPlanner {
                 this.polygonLineSweeper.sweep(p, workingWidth);
             }
             //strokePolygonLine(p, true);
-            strokeLine(p.getCpp0(), true);
+            //strokeLine(p.getCpp0(), true);
         }
     }
     //endregion
@@ -364,7 +409,7 @@ public class CoveragePathPlanner {
     }
 
     public void strokeLine(List<Vector> vectors, boolean random)    {
-        if (vectors != null)    {
+        /*if (vectors != null)    {
             if (random) {
                 graphicsContext.setStroke(Color.color(Math.random(), Math.random(), Math.random()));
             }
@@ -378,6 +423,19 @@ public class CoveragePathPlanner {
                 Vector v1 = vectors.get(i+1);
                 graphicsContext.strokeLine(v0.getX(), v0.getY(), v1.getX(), v1.getY());
             }
+        }*/
+        if (random) {
+            graphicsContext.setStroke(Color.color(Math.random(), Math.random(), Math.random()));
+        }
+        else {
+            graphicsContext.setStroke(Color.YELLOW);
+        }
+        graphicsContext.setLineWidth(1.0);
+
+        for (int i = 0; i < vectors.size()-1; i++)    {
+            Vector v0 = vectors.get(i);
+            Vector v1 = vectors.get(i+1);
+            graphicsContext.strokeLine(v0.getX(), v0.getY(), v1.getX(), v1.getY());
         }
     }
 

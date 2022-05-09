@@ -54,6 +54,9 @@ public class Polygon {
     //region fields
     private List<Vector> vertices;
 
+    //holes
+    private List<Polygon> holes = new ArrayList<>();
+
     //cpp
     private List<List<Vector>> coverPathsList = new ArrayList<>();
     private List<Vector> cpp0 = new ArrayList<>();
@@ -71,6 +74,11 @@ public class Polygon {
 
     public Polygon(final List<Vector> points) {
         this.vertices = points;
+    }
+
+    public Polygon(final List<Vector> vertices, List<Polygon> holes)    {
+        this.vertices = vertices;
+        this.holes = holes;
     }
 
     public Polygon(final Vector[] points) {
@@ -92,16 +100,31 @@ public class Polygon {
         this.vertices.add(vector);
     }
 
-    public GeometryCollection triangulate()   {
+    public List<Polygon> triangulate()   {
         Geometry polygon = JtsHelper.polygon2JTSPolygon(this);
-        org.locationtech.jts.geom.Polygon polygon1 = (org.locationtech.jts.geom.Polygon) polygon;
         DelaunayTriangulationBuilder builder = new DelaunayTriangulationBuilder();
         builder.setSites(polygon);
 
         GeometryCollection triangulation = (GeometryCollection) builder.getTriangles(new GeometryFactory());
+        System.out.println("triangulation: " + triangulation);
         triangulation = (GeometryCollection) triangulation.intersection(polygon);
 
-        return triangulation;
+        List<Polygon> polygons = new ArrayList<>();
+        for (int i = 0; i < triangulation.getNumGeometries(); i++)  {
+            List<Vector> verts = new ArrayList<>();
+            Geometry geom = triangulation.getGeometryN(i);
+            if (geom instanceof org.locationtech.jts.geom.Polygon)  {
+                for (Coordinate c : geom.getCoordinates())  {
+                    verts.add(JtsHelper.JTSCoordinate2Vector(c));
+                }
+                verts.remove(verts.size()-1);
+
+                polygons.add(new Polygon(verts));
+            }
+
+        }
+
+        return polygons;
     }
 
     public Geometry bufferOp(double offset)  {
@@ -110,23 +133,23 @@ public class Polygon {
         return geom;
     }
 
-    public boolean neighborsPolygon(Polygon p)  {
+    public LineSegment neighborsPolygon(Polygon p)  {
         if (p != null)  {
             List<LineSegment> lineSegments0 = JtsHelper.polygon2JtsLineSegments(p);
             List<LineSegment> lineSegments1 = JtsHelper.polygon2JtsLineSegments(this);
             for (LineSegment ls0 : lineSegments0)   {
                 for (LineSegment ls1: lineSegments1)    {
                     if ((ls0.p0.equals(ls1.p0) || ls0.p0.equals(ls1.p1)) && (ls0.p1.equals(ls1.p0) || ls0.p1.equals(ls1.p1)))   {
-                        return true;
+                        return ls1;
                     }
                     /*if (ls0.equals(ls1))    {
                         return true;
                     }*/
                 }
             }
-            return false;
+            return null;
         }
-        return false;
+        return null;
     }
 
     //region getter setter
@@ -139,6 +162,13 @@ public class Polygon {
     }
     public List<List<Vector>> getCoverPathsList() {
         return coverPathsList;
+    }
+
+    public List<Polygon> getHoles() {
+        return holes;
+    }
+    public void setHoles(List<Polygon> holes) {
+        this.holes = holes;
     }
 
     public List<Vector> getCpp0() {

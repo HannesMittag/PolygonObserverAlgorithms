@@ -6,6 +6,7 @@ import com.hmittag.polygonalgorithms.Model.Vector.Vector;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
 import javafx.util.Pair;
+import org.locationtech.jts.algorithm.Angle;
 import org.locationtech.jts.algorithm.Orientation;
 import org.locationtech.jts.geom.*;
 
@@ -38,7 +39,7 @@ public class PolygonLineSweeper {
         Polygon test = JtsHelper.JTSPolygon2Polygon(hull);
         test.getVertices().remove(test.getVertices().size()-1);
 
-        strokePolygonLine(test, true);
+        //strokePolygonLine(test, true);
 
         /*double[] polygonBoundingBox = computePolygonBoundingBox(polygon.getVertices());
         PolygonLineSweeper.SweepLine sweepLine = findLineSweepDirection(polygon, null);*/
@@ -55,9 +56,12 @@ public class PolygonLineSweeper {
             List<LineSegment> forbiddenLineSegments = new ArrayList<>();
             forbiddenLineSegments.add(sweepLine.lineSegment);
             int counter = 0;
-            while (counter <= polygon.getVertices().size()) {
+            while (counter <= polygon.getVertices().size()-1) {
                 PolygonLineSweeper.SweepLine sweepLineNew = findLineSweepDirection(test, forbiddenLineSegments);
-                cpp0 = sweep(polygon, polygonBoundingBox, sweepLine, workingWidth);
+                if (sweepLineNew == null)   {
+                    return false;
+                }
+                cpp0 = sweep(polygon, polygonBoundingBox, sweepLineNew, workingWidth);
                 if (cpp0 != null)   {
                     break;
                 }
@@ -80,8 +84,13 @@ public class PolygonLineSweeper {
 
         if (sweepLine != null) {
             org.locationtech.jts.geom.Polygon jtsPolygon = JtsHelper.polygon2JTSPolygon(polygon);
+            if (!jtsPolygon.isValid())  {
+                strokePolygonLine(polygon, true);
+                System.out.println(polygon);
+                System.out.println("\n!!!!!!CANNOT SWEEP, POLYGON INVALID\n");
+            }
             List<LineSegment> polygonEdges = JtsHelper.polygon2JtsLineSegments(polygon);
-            LineString currentLineString = stretchSweepLine(sweepLine, polygonBoundingBox, jtsPolygon.getCentroid());
+            LineString currentLineString = stretchSweepLine(sweepLine, polygonBoundingBox);
             //strokeLineString(currentLineString, true);
             System.out.println("\n\n");
 
@@ -100,11 +109,12 @@ public class PolygonLineSweeper {
                 hackeyWorkingWidth *= -1;
             }
             currentLineString = translateParallel(currentLineString, hackeyWorkingWidth);
+            //strokeLineString(currentLineString, true);
 
             Geometry diff = currentLineString.difference(jtsPolygon);
             Coordinate[] testCoord = diff.getCoordinates();
 
-            if (testCoord.length > 4)   {
+            if (testCoord.length != 4)   {
                 return null;
             }
             cppPoints.add(JtsHelper.JTSCoordinate2Vector(testCoord[1]));
@@ -120,35 +130,14 @@ public class PolygonLineSweeper {
                 List<Coordinate> coordinates = new ArrayList<>();
                 Geometry diff1 = currentLineString.difference(jtsPolygon);
                 Coordinate[] testCoord1 = diff1.getCoordinates();
-                System.out.println("diff: " + diff1);
-                for (Coordinate c : testCoord1)  {
-                    System.out.println(c);
-                }
 
-                if (testCoord1.length > 4)   {
+                if (testCoord1.length != 4)   {
                     return null;
                 }
 
                 coordinates.add(testCoord1[1]);
                 coordinates.add(testCoord1[2]);
 
-                /*for (LineSegment ls : polygonEdges) {
-                    LineString lsEdge = ls.toGeometry(geometryFactory);
-                    Geometry g = currentLineString.intersection(lsEdge);
-                    System.out.println("intersection: " + g);
-
-                    Coordinate c = null;
-                    if (g.getCoordinates().length > 0)  {
-                        c = g.getCoordinate();
-                        System.out.println("confirmed: " + c);
-                    }
-
-                    if (c != null)  {
-                        coordinates.add(c);
-                    }
-                }*/
-
-                System.out.println("\n");
 
                 //if more than two intersections found, mission cannot be build
                 if (coordinates.size() > 2) {
@@ -178,7 +167,7 @@ public class PolygonLineSweeper {
                 test++;
             }
 
-            strokeLine(cppPoints, false);
+            //strokeLine(cppPoints, false);
 
         }
 
@@ -196,7 +185,7 @@ public class PolygonLineSweeper {
             double optimalDist = 0;
             for (LineSegment edge : edges)  {
                 double maxDist = 0;
-                for (Vector vert : vertices)    {
+                for (Vector vert : vertices) {
                     double dist = edge.distancePerpendicular(JtsHelper.vector2JTSCoordinate(vert));
                     if (dist > maxDist) {
                         maxDist = dist;
@@ -204,8 +193,8 @@ public class PolygonLineSweeper {
                     }
                 }
 
-                if (maxDist < optimalDist || isFirstEdge)   {
-                    if (!isForbiddenEdge(edge, forbiddenLineSegments))   {
+                if (maxDist < optimalDist || isFirstEdge) {
+                    if (!isForbiddenEdge(edge, forbiddenLineSegments)) {
                         optimalDist = maxDist;
                         isFirstEdge = false;
                         Vector sweepDirection = computeSweepLine(opposedVertex
@@ -219,6 +208,10 @@ public class PolygonLineSweeper {
             System.out.println("polygon is null");
         }
 
+        if (sweepLine == null)  {
+            return null;
+        }
+
         LineSegment ls = sweepLine.lineSegment;
         Coordinate p0 = ls.p0;
         for (Vector v : p.getVertices())    {
@@ -227,10 +220,8 @@ public class PolygonLineSweeper {
             }
         }
 
-        System.out.println("sweep line begin index: " + sweepLineBeginIndex);
-
         //reorg polygon
-        List<Vector> correctedVert = new ArrayList<>();
+        /*List<Vector> correctedVert = new ArrayList<>();
         int counter = 0;
         int runnerIndex = sweepLineBeginIndex;
         while (counter <= p.getVertices().size())    {
@@ -242,14 +233,14 @@ public class PolygonLineSweeper {
             }
             counter++;
         }
-        p.setVertices(correctedVert);
+        p.setVertices(correctedVert);*/
 
         return sweepLine;
     }
     private boolean isForbiddenEdge(LineSegment edge, List<LineSegment> forbiddenLineSegments)    {
         if (forbiddenLineSegments != null) {
             for (LineSegment ls : forbiddenLineSegments) {
-                if (ls.equals(edge)) {
+                if (/*ls.equals(edge)*/(ls.p0.equals(edge.p0) || ls.p0.equals(edge.p1)) && (ls.p1.equals(edge.p0) || ls.p1.equals(edge.p1))) {
                     return true;
                 }
             }
@@ -261,13 +252,11 @@ public class PolygonLineSweeper {
         return new Vector(p1.getX() - p.getX(), p1.getY() - p.getY());
     }
 
-    private LineString stretchSweepLine(PolygonLineSweeper.SweepLine sweepLine, double[] boundingBox, Point polygonCentroid)   {
+    private LineString stretchSweepLine(PolygonLineSweeper.SweepLine sweepLine, double[] boundingBox)   {
         Vector v0 = new Vector(boundingBox[0], boundingBox[2]);
         Vector v1 = new Vector(boundingBox[1], boundingBox[2]);
         Vector v2 = new Vector(boundingBox[2], boundingBox[3]);
         Vector v3 = new Vector(boundingBox[0], boundingBox[3]);
-
-        System.out.println("bounding box: " + v0 + "  " + v1 + "  " + v2 + "  " + v3);
 
         LineSegment ls0 = new LineSegment(JtsHelper.vector2JTSCoordinate(v0), JtsHelper.vector2JTSCoordinate(v1));
         LineString lString0 = ls0.toGeometry(geometryFactory);
@@ -294,37 +283,29 @@ public class PolygonLineSweeper {
 
         List<Double> doubles = new ArrayList<>();
         if (c0 != null) {
-            System.out.println(c0);
             p = geometryFactory.createPoint(c0);
             double dist = p.distance(lString0);
-            System.out.println(dist);
             doubles.add(dist);
 
             runnerLineStringCoords.add(c0);
         }
         if (c1 != null) {
-            System.out.println(c1);
             p1 = geometryFactory.createPoint(c1);
             double dist = p1.distance(lString1);
-            System.out.println(dist);
             doubles.add(dist);
 
             runnerLineStringCoords.add(c1);
         }
         if (c2 != null) {
-            System.out.println(c2);
             p2 = geometryFactory.createPoint(c2);
             double dist = p2.distance(lString2);
-            System.out.println(dist);
             doubles.add(dist);
 
             runnerLineStringCoords.add(c2);
         }
         if (c3 != null) {
-            System.out.println(c3);
             p3 = geometryFactory.createPoint(c3);
             double dist = p3.distance(lString3);
-            System.out.println(dist);
             doubles.add(dist);
 
             runnerLineStringCoords.add(c3);
@@ -402,8 +383,6 @@ public class PolygonLineSweeper {
         }
     }
 
-    //0 1 2 3 4 5
-
     private List<Vector> computeOppositeClockwiseCoverage(List<Vector> rootCP)  {
         List<Vector> oppC = new ArrayList<>();
         for (int i = 1; i < rootCP.size(); i += 2) {
@@ -418,7 +397,113 @@ public class PolygonLineSweeper {
     }
     //endregion
 
+    //region edge shifting
+    public boolean shiftEdge(Polygon polygon, LineSegment edge, double offset)    {
+        System.out.println("polygon: " + polygon);
+        org.locationtech.jts.geom.Polygon jtsPolygon = JtsHelper.polygon2JTSPolygon(polygon);
+        if (!jtsPolygon.isValid())   {
+            System.out.println("POLYGON INVALID!");
+        }
+        //strokePolygonLine(polygon, false);
+        //polygon.getVertices().remove(polygon.getVertices().get(0));
+        //find edge start index
+        Vector v0 = JtsHelper.JTSCoordinate2Vector(edge.p0);
+        Vector v1 = JtsHelper.JTSCoordinate2Vector(edge.p1);
+        int v0Index = polygon.getVertices().indexOf(v0);
+        System.out.println("index v0: " + v0Index);
+        int v1Index = polygon.getVertices().indexOf(v1);
+        if (v1Index != v0Index+1 && v1Index != 0)   {
+            int swap = v0Index;
+            v0Index = v1Index;
+            v1Index = swap;
+        }
 
+        /*org.locationtech.jts.geom.Polygon jtsPolygon = JtsHelper.polygon2JTSPolygon(polygon);
+        if (!jtsPolygon.isValid())   {
+            System.out.println("POLYGON INVALID!");
+        }*/
+        double[] polygonBoundingBox = computePolygonBoundingBox(polygon.getVertices());
+
+        Vector startP = polygon.getVertices().get(v0Index);
+        int endPIndex = v0Index+1;
+        if (endPIndex >= polygon.getVertices().size())  {
+            endPIndex = 0;
+        }
+        Vector endP = polygon.getVertices().get(endPIndex);
+        System.out.println("index v1: " + endPIndex);
+        //fillPoint(startP);
+
+        if (hasShiftableEdge(polygon, v0Index, endPIndex)) {
+            LineSegment ls = new LineSegment(JtsHelper.vector2JTSCoordinate(startP), JtsHelper.vector2JTSCoordinate(endP));
+            LineString sweepLine = geometryFactory.createLineString(new Coordinate[] {ls.p0, ls.p1});
+            sweepLine = translateParallel(sweepLine, offset);
+            if (!sweepLine.intersects(jtsPolygon)) {
+                offset *= -1;
+            }
+            sweepLine = translateParallel(sweepLine, offset*2);
+            sweepLine = stretchSweepLine(new SweepLine(new LineSegment(sweepLine.getCoordinateN(0), sweepLine.getCoordinateN(1)), new Vector()), polygonBoundingBox);
+            //strokeLineString(sweepLine, true);
+
+            Geometry difference = sweepLine.difference(jtsPolygon);
+            System.out.println("difference: " + difference);
+            Coordinate[] coordinates = difference.getCoordinates();
+            if (coordinates.length != 4) {
+                System.out.println("length not 4");
+                return false;
+            }
+
+            Vector p0New = JtsHelper.JTSCoordinate2Vector(coordinates[1]);
+            Vector p1New = JtsHelper.JTSCoordinate2Vector(coordinates[2]);
+            List<Vector> vertNew = polygon.getVertices();
+
+            double dist0 = distanceBetweenTwoPoints(new double[]{p0New.getX(), p0New.getY()}, new double[]{vertNew.get(v0Index).getX(), vertNew.get(v0Index).getY()});
+            double dist1 = distanceBetweenTwoPoints(new double[]{p1New.getX(), p1New.getY()}, new double[]{vertNew.get(v0Index).getX(), vertNew.get(v0Index).getY()});
+            if (dist0 > dist1)  {
+                vertNew.set(v0Index, p1New);
+                vertNew.set(endPIndex, p0New);
+            }
+            else {
+                vertNew.set(v0Index, p0New);
+                vertNew.set(endPIndex, p1New);
+            }
+
+            //strokePolygonLine(polygon, true);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean hasShiftableEdge(Polygon polygon, int p0Index, int p1Index)  {
+        Vector tip0;
+        if (p0Index == 0)   {
+            tip0 = polygon.getVertices().get(polygon.getVertices().size()-1);
+        }
+        else {
+            tip0 = polygon.getVertices().get(p0Index-1);
+        }
+
+        Vector tip1;
+        if (p1Index+1 > polygon.getVertices().size()-1) {
+            tip1 = polygon.getVertices().get(0);
+        }
+        else {
+            tip1 = polygon.getVertices().get(p1Index+1);
+        }
+
+        double angle1 = Angle.angleBetweenOriented(JtsHelper.vector2JTSCoordinate(tip0), JtsHelper.vector2JTSCoordinate(polygon.getVertices().get(p0Index))
+                , JtsHelper.vector2JTSCoordinate(polygon.getVertices().get(p1Index)));
+
+
+        double angle2 = Angle.angleBetweenOriented(JtsHelper.vector2JTSCoordinate(polygon.getVertices().get(p0Index)), JtsHelper.vector2JTSCoordinate(polygon.getVertices().get(p1Index))
+                , JtsHelper.vector2JTSCoordinate(tip1));
+
+
+        System.out.println("angle1: " + Math.toDegrees(angle1));
+        System.out.println("angle2: " + Math.toDegrees(angle2));
+
+        return (angle1 < 180 && angle1 > 0) && (angle2 < 180 && angle2 > 0);
+    }
+    //endregion
 
     //region helper computations
     private double[] computePolygonBoundingBox(List<Vector> polygonCoordinates) {
